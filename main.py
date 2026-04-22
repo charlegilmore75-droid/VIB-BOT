@@ -10,7 +10,7 @@ from telegram.ext import (
 
 # ======================== إعدادات البوت ========================
 BOT_TOKEN = "8758189607:AAE5vT4K8gE06WK3OIvB49lOUvAtmEiXWUs"
-ADMIN_ID = 8492949590
+ADMIN_ID = [8492949590, 7632911735]
 ADMIN_USERNAME = "@VIP10ADMIN"
 SMM_API_KEY = "0ef77d500b72763b15490d044f2a4796"
 SMM_API_URL = "https://smmsoc.com/api/v2"
