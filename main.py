@@ -9,15 +9,20 @@ from telegram.ext import (
 )
 
 # ======================== إعدادات البوت ========================
-BOT_TOKEN = "8758189607:AAE5vT4K8gE06WK3OIvB49lOUvAtmEiXWUs"
-ADMIN_ID = 8492949590
+BOT_TOKEN = "8697459386:AAGyan3a_UCf9oodPD96NEYAd3s1eyR7geo"
+ADMIN_ID = 7632911735
 ADMIN_USERNAME = "@VIP10ADMIN"
-SMM_API_KEY = "0ef77d500b72763b15490d044f2a4796"
-SMM_API_URL = "https://smmsoc.com/api/v2"
+SMM_API_KEY = "e7c929c6ff91fa7b91f945f59d726348"
+SMM_API_URL = "https://boostprovider.com/api/v2"
 SHAM_CASH_ACCOUNT = "faff24e005ce48a4528f18674ad95967"
 SYRIATEL_CASH_ACCOUNT = "38090777"
 REFERRAL_COMMISSION = 0.07  # 7%
 DATA_FILE = "data.json"
+
+# ======================== الاشتراك الإجباري ========================
+REQUIRED_CHANNEL_ID = -1003772429885
+REQUIRED_CHANNEL_URL = "https://t.me/VIPBOST10"
+REQUIRED_CHANNEL_USERNAME = "@VIPBOST10"
 
 # ======================== حالات المحادثة ========================
 (
@@ -30,8 +35,11 @@ DATA_FILE = "data.json"
     ADMIN_USERS_LIST, ADMIN_USERS_SEARCH, ADMIN_USER_VIEW,
     ADMIN_USER_EDIT_BALANCE,
     ADMIN_PRICES_PLATFORM, ADMIN_PRICES_CATEGORY,
-    ADMIN_PRICES_SERVICE, ADMIN_PRICE_EDIT
-) = range(25)
+    ADMIN_PRICES_SERVICE, ADMIN_PRICE_EDIT,
+    ORDER_STATUS_LIST, ADMIN_BROADCAST_INPUT,
+    ADMIN_CBTN_LIST, ADMIN_CBTN_NAME, ADMIN_CBTN_VIEW,
+    ADMIN_CBTN_RENAME, ADMIN_CBTN_ADD_SVC,
+) = range(32)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -116,6 +124,10 @@ def place_order(service_id, link, quantity):
         "link": link,
         "quantity": quantity
     })
+
+def get_order_status(order_id):
+    """يجلب حالة الطلب من المزود."""
+    return smm_request("status", {"order": order_id})
 
 # ======================== كاش أسعار المزود ========================
 import time
@@ -236,108 +248,191 @@ def find_service_by_id(svc_id):
                     return platform_key, cat_key, s
     return None, None, None
 
-# ======================== الخدمات ========================
-SERVICES = {
-    "instagram": {
-        "name": "انستغرام 📸",
+# ======================== أزرار مخصصة من الأدمن ========================
+def get_custom_buttons():
+    data = load_data()
+    return data.get("custom_buttons", [])
+
+def save_custom_buttons(buttons):
+    data = load_data()
+    data["custom_buttons"] = buttons
+    save_data(data)
+
+def get_custom_button(btn_id):
+    for b in get_custom_buttons():
+        if b.get("id") == btn_id:
+            return b
+    return None
+
+def update_custom_button(btn_id, updates):
+    buttons = get_custom_buttons()
+    for b in buttons:
+        if b.get("id") == btn_id:
+            b.update(updates)
+            save_custom_buttons(buttons)
+            return b
+    return None
+
+def delete_custom_button(btn_id):
+    buttons = [b for b in get_custom_buttons() if b.get("id") != btn_id]
+    save_custom_buttons(buttons)
+
+def create_custom_button(name, location="main"):
+    import uuid
+    buttons = get_custom_buttons()
+    btn = {
+        "id": uuid.uuid4().hex[:8],
+        "name": name,
+        "location": location,
+        "service_ids": [],
+    }
+    buttons.append(btn)
+    save_custom_buttons(buttons)
+    return btn
+
+def get_custom_buttons_for_location(location):
+    return [b for b in get_custom_buttons() if b.get("location") == location]
+
+LOCATION_LABELS = {
+    "main": "🏠 القائمة الرئيسية",
+    "platform_telegram": "✈️ تيليجرام",
+    "platform_instagram": "📸 انستغرام",
+    "platform_facebook": "📘 فيسبوك",
+}
+
+# ======================== الخدمات (معرفات المزود فقط) ========================
+# كل خدمة تُحدد فقط بمعرفها لدى المزود (smm service id كرقم)
+# والاسم/السعر/الحد الأدنى والأقصى تُجلب من المزود مباشرة (مع كاش)
+SERVICE_IDS = {
+    "telegram": {
+        "name": "تيليجرام ✈️",
         "categories": {
-            "followers": {
-                "name": "متابعون 👥",
-                "services": [
-                    {"id": "ig_f1", "name": "متابعون حقيقيون [حد أقصى 500K] | بداية فورية 🚀", "min": 100, "max": 500000, "price_per_1000": 0.23, "avg_time": "40 دقيقة"},
-                    {"id": "ig_f2", "name": "متابعون حقيقيون 100% [حد أقصى 50K] | بداية فورية 🚀", "min": 10, "max": 50000, "price_per_1000": 0.18, "avg_time": "غير محدد"},
-                ]
+            "views_past": {
+                "name": "مشاهدات منشورات سابقة 👁️",
+                "ids": [6062, 6061, 6060, 6059, 6058, 6057, 6055, 4136, 4135],
             },
-            "comments": {
-                "name": "تعليقات 💬",
-                "services": [
-                    {"id": "ig_c1", "name": "تعليقات مخصصة [حد أقصى 10K] | بداية فورية 🚀", "min": 10, "max": 10000, "price_per_1000": 0.2831, "avg_time": "ساعة و54 دقيقة"},
-                    {"id": "ig_c2", "name": "تعليقات عشوائية [حد أقصى 10K] | بداية فورية 🚀", "min": 10, "max": 10000, "price_per_1000": 0.2831, "avg_time": "ساعة و38 دقيقة"},
-                ]
+            "views_future": {
+                "name": "مشاهدات منشورات مستقبلية 🔮",
+                "ids": [6068, 6067, 6066],
+            },
+            "members": {
+                "name": "أعضاء 👥",
+                "ids": [8970, 9039, 9040, 7756],
             },
             "reactions": {
                 "name": "تفاعلات ❤️",
-                "services": [
-                    {"id": "ig_r1", "name": "إعجابات [حد أقصى 1M] | لا إعادة تعبئة ⚠️ | بداية فورية 🚀", "min": 100, "max": 1000000, "price_per_1000": 0.053, "avg_time": "39 دقيقة"},
-                    {"id": "ig_r2", "name": "إعجابات [حد أقصى 1M] | مدى الحياة ♻️ | بداية فورية 🚀", "min": 100, "max": 1000000, "price_per_1000": 0.059, "avg_time": "ساعة و18 دقيقة"},
-                    {"id": "ig_r3", "name": "إعجابات [حد أقصى 1M] | لا إعادة تعبئة ⚠️ | 100K/يوم 🚀", "min": 100, "max": 1000000, "price_per_1000": 0.058, "avg_time": "26 دقيقة"},
-                    {"id": "ig_r4", "name": "إعجابات [حد أقصى 1M] | مدى الحياة ♻️ | 100K/يوم 🚀", "min": 100, "max": 1000000, "price_per_1000": 0.063, "avg_time": "4 دقائق"},
-                    {"id": "ig_r5", "name": "إعجابات هندية 🇮🇳 [حد أقصى 50K] | مضمونة | بداية فورية 🚀", "min": 10, "max": 50000, "price_per_1000": 0.23, "avg_time": "3 دقائق"},
-                ]
-            }
-        }
+                "ids": [9682, 9681, 9678, 9676, 9693, 9705, 9714, 9715, 9716, 9729, 9738, 9742, 9749, 9906],
+            },
+            "referral_start": {
+                "name": "بدء استخدام البوت / قبول الإحالة 🤝",
+                "ids": [6034, 6032, 6031, 6030],
+            },
+        },
     },
     "facebook": {
         "name": "فيسبوك 📘",
         "categories": {
+            "followers": {
+                "name": "متابعين 👥",
+                "ids": [8898, 9430, 8896, 8882, 4845, 5369, 4347, 6030, 6032],
+            },
             "reactions": {
                 "name": "تفاعلات ❤️",
-                "services": [
-                    {"id": "fb_r1", "name": "إعجابات 👍 [حد أقصى 500K] | بدء فوري 🚀", "min": 10, "max": 500000, "price_per_1000": 0.0578, "avg_time": "ساعة و42 دقيقة"},
-                    {"id": "fb_r2", "name": "حب ❤️ [حد أقصى 500K] | بدء فوري 🚀", "min": 10, "max": 500000, "price_per_1000": 0.0578, "avg_time": "46 دقيقة"},
-                    {"id": "fb_r3", "name": "واو 😲 [حد أقصى 500K] | بداية فورية 🚀", "min": 10, "max": 500000, "price_per_1000": 0.0578, "avg_time": "28 دقيقة"},
-                    {"id": "fb_r4", "name": "هاها 😄 [حد أقصى 500K] | بداية فورية 🚀", "min": 10, "max": 500000, "price_per_1000": 0.0578, "avg_time": "18 ساعة و46 دقيقة"},
-                    {"id": "fb_r5", "name": "غاضب 😡 [حد أقصى 500K] | بدء فوري 🚀", "min": 10, "max": 500000, "price_per_1000": 0.0578, "avg_time": "10 دقائق"},
-                    {"id": "fb_r6", "name": "مشاركات [حد أقصى 10M] | مدى الحياة ♻️ | بدء فوري 🚀", "min": 100, "max": 100000000, "price_per_1000": 0.018, "avg_time": "غير محدد"},
-                    {"id": "fb_r7", "name": "مشاهدات فيديو/ريلز | مدى الحياة ♻️ | 20K/يوم 🚀", "min": 100, "max": 2147483647, "price_per_1000": 0.0233, "avg_time": "ساعتان ودقيقة"},
-                    {"id": "fb_r8", "name": "مشاهدات فيديو/ريلز | مدى الحياة ♻️ | 30K/يوم 🚀", "min": 100, "max": 2147483647, "price_per_1000": 0.0202, "avg_time": "29 ساعة و54 دقيقة"},
-                ]
-            },
-            "followers": {
-                "name": "متابعون 👥",
-                "services": [
-                    {"id": "fb_f1", "name": "متابعون صفحة/ملف شخصي [حد أقصى 500K] | مدى الحياة ♻️ | بداية فورية 🚀", "min": 10, "max": 1000000, "price_per_1000": 0.1863, "avg_time": "غير محدد"},
-                    {"id": "fb_f2", "name": "متابعون صفحة/ملف شخصي [حد أقصى 100K] | 0% انخفاض | مدى الحياة ♻️ | بداية فورية 🚀", "min": 10, "max": 1000000, "price_per_1000": 0.2255, "avg_time": "ساعة و29 دقيقة"},
-                    {"id": "fb_f3", "name": "متابعون | انخفاض طفيف | مدى الحياة ♻️ | 3K/ساعة 🚀", "min": 10, "max": 1000000, "price_per_1000": 0.2405, "avg_time": "12 ساعة و18 دقيقة"},
-                ]
+                "ids": [7738, 7703, 9536, 9401, 9376, 9497, 9375, 4899],
             },
             "comments": {
                 "name": "تعليقات 💬",
-                "services": []
-            }
-        }
+                "ids": [7566, 7565],
+            },
+        },
     },
-    "telegram": {
-        "name": "تيليجرام ✈️",
+    "instagram": {
+        "name": "انستغرام 📸",
         "categories": {
+            "views": {
+                "name": "مشاهدات 👁️",
+                "ids": [4013, 4014, 5351, 4012, 7566],
+            },
             "followers": {
-                "name": "أعضاء 👥",
-                "services": [
-                    {"id": "tg_f1", "name": "أعضاء [حد أقصى 1M] | إعادة تعبئة 30 يوم ♻️ | فوري 🚀", "min": 1, "max": 1000000, "price_per_1000": 0.0138, "avg_time": "8 دقائق"},
-                    {"id": "tg_f2", "name": "أعضاء [حد أقصى 1M] | لا إعادة تعبئة ⚠️ | فوري 🚀", "min": 1, "max": 1000000, "price_per_1000": 0.0121, "avg_time": "14 دقيقة"},
-                    {"id": "tg_f3", "name": "أعضاء عالية الجودة [حد أقصى 1M] | 30 يوم ♻️ | بدء فوري 🚀", "min": 10, "max": 1000000, "price_per_1000": 0.244, "avg_time": "12 ساعة و17 دقيقة"},
-                    {"id": "tg_f4", "name": "أعضاء عالية الجودة [حد أقصى 1M] | مدى الحياة ♻️ | بدء فوري 🚀", "min": 10, "max": 1000000, "price_per_1000": 0.4413, "avg_time": "16 دقيقة"},
-                ]
+                "name": "متابعين 👥",
+                "ids": [8849, 8921, 4805, 4883],
             },
-            "reactions": {
-                "name": "تفاعلات ❤️",
-                "services": [
-                    {"id": "tg_r1", "name": "مشاهدات آخر منشور | إلغاء تفعيل 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.0015, "avg_time": "26 دقيقة"},
-                    {"id": "tg_r2", "name": "مشاهدات آخر 10 منشورات | إلغاء تفعيل 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.0137, "avg_time": "ساعتان و7 دقائق"},
-                    {"id": "tg_r3", "name": "مشاهدات آخر 20 منشوراً | إلغاء تفعيل 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.0273, "avg_time": "57 دقيقة"},
-                    {"id": "tg_r4", "name": "مشاهدات آخر 30 منشوراً | إلغاء تفعيل 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.041, "avg_time": "6 ساعات و17 دقيقة"},
-                    {"id": "tg_r5", "name": "مشاهدات آخر 100 منشور | إلغاء تفعيل 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.1365, "avg_time": "ساعتان و32 دقيقة"},
-                    {"id": "tg_r6", "name": "ردود فعل إيجابية [👍🤩🎉🔥❤️] + مشاهدات 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.009, "avg_time": "ساعتان و35 دقيقة"},
-                    {"id": "tg_r7", "name": "ردود فعل سلبية [👎😢💩🤮🤬] + مشاهدات 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.009, "avg_time": "23 دقيقة"},
-                    {"id": "tg_r8", "name": "ردود فعل ❤️ + مشاهدات 🚀", "min": 10, "max": 2147483647, "price_per_1000": 0.009, "avg_time": "ساعتان و36 دقيقة"},
-                ]
+            "likes": {
+                "name": "إعجابات ❤️",
+                "ids": [7699, 9252, 8973],
             },
-            "comments": {
-                "name": "تعليقات 💬",
-                "services": []
-            }
-        }
-    }
+        },
+    },
 }
+
+def get_provider_service(smm_id):
+    """يجلب تفاصيل خدمة من المزود (الاسم، السعر، الحد الأدنى/الأقصى)."""
+    services = fetch_provider_services()
+    return services.get(str(smm_id))
+
+def build_service(smm_id):
+    """يبني قاموس خدمة كامل من معرف المزود فقط."""
+    info = get_provider_service(smm_id)
+    if not info:
+        return None
+    return {
+        "id": str(smm_id),
+        "smm_id": str(smm_id),
+        "name": info.get("name", f"خدمة #{smm_id}"),
+        "min": info.get("min", 1),
+        "max": info.get("max", 1000000),
+        "price_per_1000": info.get("rate", 0.0),
+        "avg_time": "غير محدد",
+    }
+
+def get_category_services(platform_key, category_key):
+    """يعيد قائمة الخدمات (مبنية حياً) لتصنيف معين."""
+    cat = SERVICE_IDS.get(platform_key, {}).get("categories", {}).get(category_key, {})
+    services = []
+    for sid in cat.get("ids", []):
+        svc = build_service(sid)
+        if svc:
+            services.append(svc)
+    return services
+
+# واجهة توافق مع الكود القديم: SERVICES dict مبنية ديناميكياً
+class _ServicesProxy:
+    def __getitem__(self, key):
+        return self._wrap_platform(key)
+    def get(self, key, default=None):
+        if key not in SERVICE_IDS:
+            return default
+        return self._wrap_platform(key)
+    def items(self):
+        return [(k, self._wrap_platform(k)) for k in SERVICE_IDS.keys()]
+    def keys(self):
+        return SERVICE_IDS.keys()
+    def __contains__(self, key):
+        return key in SERVICE_IDS
+    def _wrap_platform(self, pkey):
+        pdata = SERVICE_IDS[pkey]
+        cats = {}
+        for ckey, cdata in pdata["categories"].items():
+            cats[ckey] = {
+                "name": cdata["name"],
+                "services": get_category_services(pkey, ckey),
+            }
+        return {"name": pdata["name"], "categories": cats}
+
+SERVICES = _ServicesProxy()
 
 # ======================== دوال مساعدة للواجهة ========================
 def main_menu_keyboard(user_id):
     keyboard = [
         [InlineKeyboardButton("💳 شحن رصيد", callback_data="charge")],
         [InlineKeyboardButton("🛒 طلب خدمة", callback_data="service")],
+        [InlineKeyboardButton("📊 حالة الطلب", callback_data="order_status")],
         [InlineKeyboardButton("👥 إحالة صديق", callback_data="referral")],
         [InlineKeyboardButton("📞 التواصل مع الدعم", callback_data="support")],
     ]
+    # أزرار مخصصة من الأدمن في القائمة الرئيسية
+    for b in get_custom_buttons_for_location("main"):
+        keyboard.append([InlineKeyboardButton(b["name"], callback_data=f"cbtn_{b['id']}")])
     if user_id == ADMIN_ID:
         keyboard.append([InlineKeyboardButton("⚙️ لوحة الأدمن", callback_data="admin_panel")])
     return InlineKeyboardMarkup(keyboard)
@@ -357,6 +452,66 @@ def back_button(callback="main"):
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=callback)]])
 
 # ======================== الأوامر الرئيسية ========================
+async def is_user_subscribed(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    """يتحقق إذا كان المستخدم مشتركاً في القناة المطلوبة."""
+    if user_id == ADMIN_ID:
+        return True
+    try:
+        member = await context.bot.get_chat_member(REQUIRED_CHANNEL_ID, user_id)
+        return member.status in ("member", "administrator", "creator")
+    except Exception as e:
+        logger.error(f"Subscription check failed for {user_id}: {e}")
+        return False
+
+def subscription_required_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 الانضمام إلى القناة", url=REQUIRED_CHANNEL_URL)],
+        [InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_subscription")],
+    ])
+
+async def send_subscription_required(update: Update):
+    text = (
+        "🔒 الاشتراك الإجباري\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "للاستفادة من خدمات البوت، يرجى الاشتراك في قناتنا أولاً:\n"
+        f"📢 {REQUIRED_CHANNEL_USERNAME}\n\n"
+        "بعد الاشتراك اضغط زر «✅ تحقق من الاشتراك»."
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=subscription_required_keyboard())
+    else:
+        await update.message.reply_text(text, reply_markup=subscription_required_keyboard())
+
+async def check_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    if await is_user_subscribed(context, user_id):
+        await query.answer("✅ تم التحقق من اشتراكك!", show_alert=True)
+        # تشغيل القائمة الرئيسية
+        get_user(user_id)
+        balance = get_user(user_id).get("balance", 0.0)
+        text = (
+            f"👋 أهلاً بك {query.from_user.first_name}!\n\n"
+            "🌟 مرحباً في بوت خدمات السوشيال ميديا\n"
+            "━━━━━━━━━━━━━━━━\n"
+            f"💳 رصيدك الحالي: {balance:.4f}$\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "اختر ما تريد من القائمة أدناه:"
+        )
+        await query.edit_message_text(text, reply_markup=main_menu_keyboard(user_id))
+        return MAIN_MENU
+    else:
+        await query.answer("❌ لم تشترك بعد في القناة!", show_alert=True)
+        await query.edit_message_text(
+            "🔒 الاشتراك الإجباري\n"
+            "━━━━━━━━━━━━━━━━\n"
+            "لم نتمكن من العثور على اشتراكك في القناة.\n"
+            f"📢 {REQUIRED_CHANNEL_USERNAME}\n\n"
+            "يرجى الاشتراك ثم الضغط مرة أخرى.",
+            reply_markup=subscription_required_keyboard()
+        )
+        return ConversationHandler.END
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
@@ -368,6 +523,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "username": user.username,
         "first_name": user.first_name
     })
+
+    # ======== التحقق من الاشتراك الإجباري ========
+    if not await is_user_subscribed(context, user_id):
+        await send_subscription_required(update)
+        return ConversationHandler.END
 
     if args and args[0].startswith("ref_"):
         referrer_id = args[0].replace("ref_", "")
@@ -761,6 +921,9 @@ async def platform_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for cat_key, cat_data in platform_data["categories"].items():
         if cat_data["services"]:
             keyboard.append([InlineKeyboardButton(cat_data["name"], callback_data=f"category_{cat_key}")])
+    # أزرار مخصصة من الأدمن لهذه المنصة
+    for b in get_custom_buttons_for_location(f"platform_{platform}"):
+        keyboard.append([InlineKeyboardButton(b["name"], callback_data=f"cbtn_{b['id']}")])
     keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="service")])
 
     await query.edit_message_text(
@@ -775,6 +938,7 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cat_key = query.data.replace("category_", "")
     platform = context.user_data.get("platform")
     context.user_data["category"] = cat_key
+    context.user_data["svc_back_cb"] = f"category_{cat_key}"
 
     platform_data = SERVICES.get(platform)
     cat_data = platform_data["categories"].get(cat_key)
@@ -795,6 +959,47 @@ async def category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return SERVICE_SELECT
 
+async def custom_button_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض خدمات زر مخصص للزبون."""
+    query = update.callback_query
+    await query.answer()
+    btn_id = query.data.replace("cbtn_", "")
+    btn = get_custom_button(btn_id)
+    if not btn:
+        await query.edit_message_text("❌ الزر غير موجود.", reply_markup=back_button("main"))
+        return MAIN_MENU
+
+    context.user_data["svc_back_cb"] = f"cbtn_{btn_id}"
+    context.user_data["platform"] = None
+    context.user_data["category"] = None
+
+    fetch_provider_services()
+
+    keyboard = []
+    for sid in btn.get("service_ids", []):
+        svc = build_service(sid)
+        if not svc:
+            continue
+        price_shown = get_customer_price(svc)
+        btn_text = f"{svc['name'][:40]} | {price_shown:.4f}$/1K"
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"svc_{svc['id']}")])
+
+    # زر رجوع حسب موقع الزر
+    loc = btn.get("location", "main")
+    if loc.startswith("platform_"):
+        back_cb = loc
+    else:
+        back_cb = "main"
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=back_cb)])
+
+    if not btn.get("service_ids"):
+        text = f"🛒 {btn['name']}\n━━━━━━━━━━━━━━━━\n⚠️ لا توجد خدمات بعد في هذا الزر."
+    else:
+        text = f"🛒 {btn['name']}\n━━━━━━━━━━━━━━━━\nاختر الخدمة:"
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    return SERVICE_SELECT
+
 async def service_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -802,9 +1007,15 @@ async def service_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     platform = context.user_data.get("platform")
     cat_key = context.user_data.get("category")
 
-    platform_data = SERVICES.get(platform)
-    cat_data = platform_data["categories"].get(cat_key)
-    svc = next((s for s in cat_data["services"] if s["id"] == svc_id), None)
+    svc = None
+    if platform and cat_key:
+        platform_data = SERVICES.get(platform)
+        cat_data = platform_data["categories"].get(cat_key) if platform_data else None
+        if cat_data:
+            svc = next((s for s in cat_data["services"] if s["id"] == svc_id), None)
+    # احتياط: ابني الخدمة مباشرة من المزود (مفيد للأزرار المخصصة)
+    if not svc:
+        svc = build_service(svc_id)
     if not svc:
         await query.edit_message_text("❌ الخدمة غير موجودة.")
         return SERVICE_SELECT
@@ -814,9 +1025,10 @@ async def service_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["selected_category_key"] = cat_key
     price_shown = get_customer_price(svc)
 
+    back_cb = context.user_data.get("svc_back_cb") or (f"category_{cat_key}" if cat_key else "main")
     keyboard = [
         [InlineKeyboardButton("▶️ متابعة", callback_data="proceed_order")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data=f"category_{cat_key}")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data=back_cb)],
     ]
     await query.edit_message_text(
         f"📋 تفاصيل الخدمة\n"
@@ -931,6 +1143,21 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if result and "order" in result:
         order_id = result["order"]
+        # حفظ الطلب في بيانات المستخدم
+        from datetime import datetime
+        order_record = {
+            "order_id": str(order_id),
+            "smm_service_id": str(smm_service_id),
+            "service_name": svc.get("name", ""),
+            "link": link,
+            "quantity": int(qty),
+            "cost": float(total_price),
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+        u = get_user(user_id)
+        orders = u.get("orders", [])
+        orders.insert(0, order_record)
+        update_user(user_id, {"orders": orders[:100]})
         await context.bot.send_message(
             chat_id=user_id,
             text=(
@@ -962,6 +1189,84 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return MAIN_MENU
 
+# ======================== حالة الطلبات ========================
+STATUS_AR = {
+    "pending": "قيد الانتظار ⏳",
+    "in progress": "جاري التنفيذ 🔄",
+    "processing": "قيد المعالجة 🔄",
+    "completed": "مكتمل ✅",
+    "partial": "مكتمل جزئياً ⚠️",
+    "canceled": "ملغي ❌",
+    "cancelled": "ملغي ❌",
+    "refunded": "تم الاسترداد 💸",
+    "fail": "فشل ❌",
+}
+
+def translate_status(s):
+    if not s:
+        return "غير معروف"
+    return STATUS_AR.get(str(s).lower(), str(s))
+
+async def order_status_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    u = get_user(user_id)
+    orders = u.get("orders", [])
+    if not orders:
+        await query.edit_message_text(
+            "📊 حالة الطلبات\n━━━━━━━━━━━━━━━━\n"
+            "لا يوجد لديك أي طلبات سابقة.",
+            reply_markup=back_button("main")
+        )
+        return MAIN_MENU
+    keyboard = []
+    for o in orders[:15]:
+        label = f"#{o['order_id']} | {o['quantity']:,} | {o['cost']:.4f}$"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"order_view_{o['order_id']}")])
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="main")])
+    await query.edit_message_text(
+        "📊 حالة الطلبات\n━━━━━━━━━━━━━━━━\n"
+        f"إجمالي طلباتك: {len(orders)}\n"
+        "اختر طلباً لعرض تفاصيله الحية:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ORDER_STATUS_LIST
+
+async def order_view_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("⏳ جاري جلب الحالة...")
+    user_id = query.from_user.id
+    order_id = query.data.replace("order_view_", "")
+    u = get_user(user_id)
+    rec = next((o for o in u.get("orders", []) if str(o["order_id"]) == order_id), None)
+    if not rec:
+        await query.edit_message_text("❌ لم يتم العثور على الطلب.", reply_markup=back_button("order_status"))
+        return ORDER_STATUS_LIST
+    info = get_order_status(order_id) or {}
+    status = translate_status(info.get("status"))
+    start_count = info.get("start_count", "—")
+    remains = info.get("remains", "—")
+    text = (
+        "📋 تفاصيل الطلب\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"🆔 بطاقة تعريف: {rec['order_id']}\n"
+        f"📅 التاريخ: {rec['date']}\n"
+        f"🔗 الوصلة: {rec['link']}\n"
+        f"💰 التكلفة: {rec['cost']:.4f}$\n"
+        f"🔢 عداد البداية: {start_count}\n"
+        f"📦 الكمية: {rec['quantity']:,}\n"
+        f"🔹 الخدمة: {rec['service_name'][:60]}\n"
+        f"📊 الحالة: {status}\n"
+        f"⏳ البقايا: {remains}"
+    )
+    keyboard = [
+        [InlineKeyboardButton("🔄 تحديث", callback_data=f"order_view_{order_id}")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="order_status")],
+    ]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    return ORDER_STATUS_LIST
+
 # ======================== لوحة الأدمن ========================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -976,6 +1281,8 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💱 تعديل ضرب السعر", callback_data="set_multiplier")],
         [InlineKeyboardButton("💵 تعديل الأسعار", callback_data="admin_prices")],
         [InlineKeyboardButton(f"👥 إدارة الحسابات ({users_count})", callback_data="admin_users")],
+        [InlineKeyboardButton("📢 بث رسالة لكل المستخدمين", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("🧩 إضافة أزرار", callback_data="admin_cbtns")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="main")],
     ]
     await query.edit_message_text(
@@ -986,6 +1293,319 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ADMIN_PANEL
+
+# ======================== بث رسالة لكل المستخدمين ========================
+async def admin_broadcast_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ غير مصرح لك!", show_alert=True)
+        return
+    await query.answer()
+    data = load_data()
+    users_count = len(data.get("users", {}))
+    await query.edit_message_text(
+        "📢 بث رسالة جماعية\n━━━━━━━━━━━━━━━━\n"
+        f"سيتم إرسال رسالتك إلى {users_count} مستخدم.\n\n"
+        "أرسل الآن نص الرسالة (يدعم النص العادي والإيموجي):\n"
+        "أو أرسل /cancel للإلغاء.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_panel")]])
+    )
+    return ADMIN_BROADCAST_INPUT
+
+async def admin_broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = update.message.text
+    if text and text.strip().lower() == "/cancel":
+        await update.message.reply_text("❌ تم إلغاء البث.", reply_markup=main_menu_keyboard(ADMIN_ID))
+        return MAIN_MENU
+    data = load_data()
+    users = list(data.get("users", {}).keys())
+    await update.message.reply_text(f"⏳ جاري الإرسال إلى {len(users)} مستخدم...")
+    sent, failed = 0, 0
+    msg = (
+        "📢 رسالة من الإدارة\n"
+        "━━━━━━━━━━━━━━━━\n"
+        f"{text}"
+    )
+    for uid in users:
+        try:
+            await context.bot.send_message(chat_id=int(uid), text=msg)
+            sent += 1
+        except Exception as e:
+            logger.error(f"Broadcast failed for {uid}: {e}")
+            failed += 1
+    await update.message.reply_text(
+        f"✅ اكتمل البث!\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"📤 تم الإرسال: {sent}\n"
+        f"⚠️ فشل: {failed}",
+        reply_markup=main_menu_keyboard(ADMIN_ID)
+    )
+    return MAIN_MENU
+
+# ======================== إدارة الأزرار المخصصة (الأدمن) ========================
+async def admin_cbtns_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ غير مصرح لك!", show_alert=True)
+        return ADMIN_PANEL
+    await query.answer()
+    buttons = get_custom_buttons()
+    keyboard = [[InlineKeyboardButton("➕ إنشاء زر جديد", callback_data="cbtnnew")]]
+    for b in buttons:
+        loc_label = LOCATION_LABELS.get(b.get("location", "main"), b.get("location"))
+        label = f"{b['name']} | {loc_label} | ({len(b.get('service_ids', []))})"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"cbtnv_{b['id']}")])
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="admin_panel")])
+    await query.edit_message_text(
+        "🧩 الأزرار المخصصة\n━━━━━━━━━━━━━━━━\n"
+        f"إجمالي الأزرار: {len(buttons)}\n"
+        "اختر زراً لإدارته أو أنشئ زراً جديداً:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ADMIN_CBTN_LIST
+
+async def admin_cbtn_new_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ غير مصرح لك!", show_alert=True)
+        return ADMIN_PANEL
+    await query.answer()
+    await query.edit_message_text(
+        "✏️ إنشاء زر جديد\n━━━━━━━━━━━━━━━━\n"
+        "أرسل اسم الزر (الذي سيراه الزبون):\n"
+        "أو /cancel للإلغاء.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_cbtns")]])
+    )
+    return ADMIN_CBTN_NAME
+
+async def admin_cbtn_new_receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = update.message.text.strip()
+    if text.lower() == "/cancel":
+        await update.message.reply_text("❌ تم الإلغاء.", reply_markup=main_menu_keyboard(ADMIN_ID))
+        return MAIN_MENU
+    if len(text) < 1 or len(text) > 60:
+        await update.message.reply_text("❌ الاسم يجب أن يكون بين 1 و 60 حرفاً. أعد الإرسال.")
+        return ADMIN_CBTN_NAME
+    btn = create_custom_button(text, location="main")
+    context.user_data["cbtn_id"] = btn["id"]
+    await update.message.reply_text(
+        f"✅ تم إنشاء الزر «{btn['name']}» بنجاح!\n"
+        f"الموقع الافتراضي: 🏠 القائمة الرئيسية\n"
+        f"يمكنك تغيير الموقع وإضافة الخدمات الآن:",
+        reply_markup=_cbtn_view_keyboard(btn["id"])
+    )
+    return ADMIN_CBTN_VIEW
+
+def _cbtn_view_keyboard(btn_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ إضافة خدمة (معرف المزود)", callback_data=f"cbtnsvc_add_{btn_id}")],
+        [InlineKeyboardButton("📋 إدارة الخدمات", callback_data=f"cbtnsvc_list_{btn_id}")],
+        [InlineKeyboardButton("📍 تغيير الموقع", callback_data=f"cbtnloc_{btn_id}")],
+        [InlineKeyboardButton("✏️ تعديل الاسم", callback_data=f"cbtnren_{btn_id}")],
+        [InlineKeyboardButton("🗑️ حذف الزر", callback_data=f"cbtndel_{btn_id}")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="admin_cbtns")],
+    ])
+
+async def admin_cbtn_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ غير مصرح لك!", show_alert=True)
+        return ADMIN_PANEL
+    await query.answer()
+    btn_id = query.data.replace("cbtnv_", "")
+    btn = get_custom_button(btn_id)
+    if not btn:
+        await query.edit_message_text("❌ الزر غير موجود.", reply_markup=back_button("admin_cbtns"))
+        return ADMIN_CBTN_LIST
+    context.user_data["cbtn_id"] = btn_id
+    loc_label = LOCATION_LABELS.get(btn.get("location", "main"), btn.get("location"))
+    await query.edit_message_text(
+        f"🧩 إدارة الزر\n━━━━━━━━━━━━━━━━\n"
+        f"📛 الاسم: {btn['name']}\n"
+        f"📍 الموقع: {loc_label}\n"
+        f"🛒 عدد الخدمات: {len(btn.get('service_ids', []))}",
+        reply_markup=_cbtn_view_keyboard(btn_id)
+    )
+    return ADMIN_CBTN_VIEW
+
+async def admin_cbtn_change_loc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    btn_id = query.data.replace("cbtnloc_", "")
+    context.user_data["cbtn_id"] = btn_id
+    keyboard = []
+    for loc_key, loc_label in LOCATION_LABELS.items():
+        keyboard.append([InlineKeyboardButton(loc_label, callback_data=f"cbtnsetloc_{btn_id}_{loc_key}")])
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"cbtnv_{btn_id}")])
+    await query.edit_message_text(
+        "📍 اختر موقع الزر:\n━━━━━━━━━━━━━━━━\n"
+        "سيظهر الزر في القائمة المختارة.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ADMIN_CBTN_VIEW
+
+async def admin_cbtn_set_loc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.replace("cbtnsetloc_", "").split("_", 1)
+    btn_id = parts[0]
+    loc = parts[1]
+    update_custom_button(btn_id, {"location": loc})
+    btn = get_custom_button(btn_id)
+    loc_label = LOCATION_LABELS.get(btn.get("location"), btn.get("location"))
+    await query.edit_message_text(
+        f"✅ تم تحديث الموقع إلى: {loc_label}",
+        reply_markup=_cbtn_view_keyboard(btn_id)
+    )
+    return ADMIN_CBTN_VIEW
+
+async def admin_cbtn_rename_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    btn_id = query.data.replace("cbtnren_", "")
+    context.user_data["cbtn_id"] = btn_id
+    await query.edit_message_text(
+        "✏️ تعديل الاسم\n━━━━━━━━━━━━━━━━\n"
+        "أرسل الاسم الجديد للزر، أو /cancel للإلغاء.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"cbtnv_{btn_id}")]])
+    )
+    return ADMIN_CBTN_RENAME
+
+async def admin_cbtn_rename_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = update.message.text.strip()
+    btn_id = context.user_data.get("cbtn_id")
+    if text.lower() == "/cancel" or not btn_id:
+        await update.message.reply_text("❌ تم الإلغاء.", reply_markup=main_menu_keyboard(ADMIN_ID))
+        return MAIN_MENU
+    if len(text) < 1 or len(text) > 60:
+        await update.message.reply_text("❌ الاسم يجب أن يكون بين 1 و 60 حرفاً. أعد الإرسال.")
+        return ADMIN_CBTN_RENAME
+    update_custom_button(btn_id, {"name": text})
+    await update.message.reply_text(
+        f"✅ تم تحديث الاسم إلى: «{text}»",
+        reply_markup=_cbtn_view_keyboard(btn_id)
+    )
+    return ADMIN_CBTN_VIEW
+
+async def admin_cbtn_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    btn_id = query.data.replace("cbtndel_", "")
+    btn = get_custom_button(btn_id)
+    if not btn:
+        await query.edit_message_text("❌ الزر غير موجود.", reply_markup=back_button("admin_cbtns"))
+        return ADMIN_CBTN_LIST
+    delete_custom_button(btn_id)
+    await query.edit_message_text(f"🗑️ تم حذف الزر «{btn['name']}» بنجاح.")
+    # عرض القائمة من جديد
+    return await admin_cbtns_list(update, context)
+
+async def admin_cbtn_add_svc_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    btn_id = query.data.replace("cbtnsvc_add_", "")
+    context.user_data["cbtn_id"] = btn_id
+    await query.edit_message_text(
+        "➕ إضافة خدمة للزر\n━━━━━━━━━━━━━━━━\n"
+        "أرسل معرف الخدمة (رقم) كما هو لدى المزود.\n"
+        "البوت سيجلب اسمها وسعرها وحدودها تلقائياً.\n\n"
+        "أو /cancel للإلغاء.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"cbtnv_{btn_id}")]])
+    )
+    return ADMIN_CBTN_ADD_SVC
+
+async def admin_cbtn_add_svc_receive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    text = update.message.text.strip()
+    btn_id = context.user_data.get("cbtn_id")
+    if text.lower() == "/cancel" or not btn_id:
+        await update.message.reply_text("❌ تم الإلغاء.", reply_markup=main_menu_keyboard(ADMIN_ID))
+        return MAIN_MENU
+    try:
+        sid = int(text)
+    except ValueError:
+        await update.message.reply_text("❌ الرجاء إرسال رقم صحيح فقط (معرف الخدمة).")
+        return ADMIN_CBTN_ADD_SVC
+    info = get_provider_service(sid)
+    if not info:
+        await update.message.reply_text(
+            f"❌ لم أجد خدمة بهذا المعرف ({sid}) لدى المزود.\n"
+            "تأكد من المعرف وأعد الإرسال، أو /cancel."
+        )
+        return ADMIN_CBTN_ADD_SVC
+    btn = get_custom_button(btn_id)
+    sids = btn.get("service_ids", [])
+    if sid in sids:
+        await update.message.reply_text(
+            f"⚠️ هذه الخدمة موجودة مسبقاً في الزر.",
+            reply_markup=_cbtn_view_keyboard(btn_id)
+        )
+        return ADMIN_CBTN_VIEW
+    sids.append(sid)
+    update_custom_button(btn_id, {"service_ids": sids})
+    multiplier = get_multiplier()
+    customer_price = float(info.get("rate", 0)) * multiplier
+    await update.message.reply_text(
+        f"✅ تمت إضافة الخدمة بنجاح!\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"🆔 المعرف: {sid}\n"
+        f"🔹 الاسم: {info.get('name', '')[:80]}\n"
+        f"💰 سعر المزود: {info.get('rate')}$ / 1K\n"
+        f"💵 سعر الزبون: {customer_price:.4f}$ / 1K\n"
+        f"📉 الحد الأدنى: {info.get('min'):,}\n"
+        f"📈 الحد الأقصى: {info.get('max'):,}",
+        reply_markup=_cbtn_view_keyboard(btn_id)
+    )
+    return ADMIN_CBTN_VIEW
+
+async def admin_cbtn_list_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    btn_id = query.data.replace("cbtnsvc_list_", "")
+    btn = get_custom_button(btn_id)
+    if not btn:
+        await query.edit_message_text("❌ الزر غير موجود.", reply_markup=back_button("admin_cbtns"))
+        return ADMIN_CBTN_LIST
+    context.user_data["cbtn_id"] = btn_id
+    sids = btn.get("service_ids", [])
+    keyboard = []
+    for sid in sids:
+        info = get_provider_service(sid) or {}
+        nm = info.get("name", f"#{sid}")[:35]
+        keyboard.append([InlineKeyboardButton(f"🗑️ {sid} | {nm}", callback_data=f"cbtnsvc_del_{btn_id}_{sid}")])
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"cbtnv_{btn_id}")])
+    text = (
+        f"📋 خدمات الزر «{btn['name']}»\n━━━━━━━━━━━━━━━━\n"
+        f"العدد: {len(sids)}\n"
+        + ("اضغط على خدمة لحذفها." if sids else "لا توجد خدمات بعد.")
+    )
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    return ADMIN_CBTN_VIEW
+
+async def admin_cbtn_del_svc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("🗑️ تم الحذف")
+    rest = query.data.replace("cbtnsvc_del_", "")
+    btn_id, sid_str = rest.split("_", 1)
+    try:
+        sid = int(sid_str)
+    except ValueError:
+        return ADMIN_CBTN_VIEW
+    btn = get_custom_button(btn_id)
+    if not btn:
+        return ADMIN_CBTN_LIST
+    sids = [s for s in btn.get("service_ids", []) if s != sid]
+    update_custom_button(btn_id, {"service_ids": sids})
+    # إعادة عرض قائمة الخدمات
+    query.data = f"cbtnsvc_list_{btn_id}"
+    return await admin_cbtn_list_svc(update, context)
 
 # ======================== إدارة حسابات المستخدمين ========================
 USERS_PAGE_SIZE = 10
@@ -1374,9 +1994,11 @@ def main():
             MAIN_MENU: [
                 CallbackQueryHandler(charge_menu, pattern="^charge$"),
                 CallbackQueryHandler(service_menu, pattern="^service$"),
+                CallbackQueryHandler(order_status_menu, pattern="^order_status$"),
                 CallbackQueryHandler(referral_menu, pattern="^referral$"),
                 CallbackQueryHandler(support, pattern="^support$"),
                 CallbackQueryHandler(admin_panel, pattern="^admin_panel$"),
+                CallbackQueryHandler(custom_button_selected, pattern="^cbtn_[a-f0-9]+$"),
                 CallbackQueryHandler(show_main_menu, pattern="^main$"),
             ],
             CHARGE_MENU: [
@@ -1407,6 +2029,7 @@ def main():
             SERVICE_TYPE: [
                 CallbackQueryHandler(category_selected, pattern="^category_"),
                 CallbackQueryHandler(platform_selected, pattern="^platform_"),
+                CallbackQueryHandler(custom_button_selected, pattern="^cbtn_[a-f0-9]+$"),
                 CallbackQueryHandler(show_main_menu, pattern="^main$"),
                 CallbackQueryHandler(service_menu, pattern="^service$"),
             ],
@@ -1415,6 +2038,7 @@ def main():
                 CallbackQueryHandler(proceed_order, pattern="^proceed_order$"),
                 CallbackQueryHandler(category_selected, pattern="^category_"),
                 CallbackQueryHandler(platform_selected, pattern="^platform_"),
+                CallbackQueryHandler(custom_button_selected, pattern="^cbtn_[a-f0-9]+$"),
                 CallbackQueryHandler(show_main_menu, pattern="^main$"),
             ],
             ORDER_QUANTITY: [
@@ -1431,7 +2055,51 @@ def main():
                 CallbackQueryHandler(set_multiplier_prompt, pattern="^set_multiplier$"),
                 CallbackQueryHandler(admin_users_list, pattern="^admin_users$"),
                 CallbackQueryHandler(admin_prices_platforms, pattern="^admin_prices$"),
+                CallbackQueryHandler(admin_broadcast_prompt, pattern="^admin_broadcast$"),
+                CallbackQueryHandler(admin_cbtns_list, pattern="^admin_cbtns$"),
                 CallbackQueryHandler(admin_panel, pattern="^admin_panel$"),
+                CallbackQueryHandler(show_main_menu, pattern="^main$"),
+            ],
+            ADMIN_CBTN_LIST: [
+                CallbackQueryHandler(admin_cbtn_new_prompt, pattern="^cbtnnew$"),
+                CallbackQueryHandler(admin_cbtn_view, pattern="^cbtnv_"),
+                CallbackQueryHandler(admin_cbtns_list, pattern="^admin_cbtns$"),
+                CallbackQueryHandler(admin_panel, pattern="^admin_panel$"),
+            ],
+            ADMIN_CBTN_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_cbtn_new_receive_name),
+                CallbackQueryHandler(admin_cbtns_list, pattern="^admin_cbtns$"),
+                CommandHandler("cancel", show_main_menu),
+            ],
+            ADMIN_CBTN_VIEW: [
+                CallbackQueryHandler(admin_cbtn_add_svc_prompt, pattern="^cbtnsvc_add_"),
+                CallbackQueryHandler(admin_cbtn_list_svc, pattern="^cbtnsvc_list_"),
+                CallbackQueryHandler(admin_cbtn_del_svc, pattern="^cbtnsvc_del_"),
+                CallbackQueryHandler(admin_cbtn_change_loc, pattern="^cbtnloc_"),
+                CallbackQueryHandler(admin_cbtn_set_loc, pattern="^cbtnsetloc_"),
+                CallbackQueryHandler(admin_cbtn_rename_prompt, pattern="^cbtnren_"),
+                CallbackQueryHandler(admin_cbtn_delete, pattern="^cbtndel_"),
+                CallbackQueryHandler(admin_cbtn_view, pattern="^cbtnv_"),
+                CallbackQueryHandler(admin_cbtns_list, pattern="^admin_cbtns$"),
+            ],
+            ADMIN_CBTN_RENAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_cbtn_rename_receive),
+                CallbackQueryHandler(admin_cbtn_view, pattern="^cbtnv_"),
+                CommandHandler("cancel", show_main_menu),
+            ],
+            ADMIN_CBTN_ADD_SVC: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_cbtn_add_svc_receive),
+                CallbackQueryHandler(admin_cbtn_view, pattern="^cbtnv_"),
+                CommandHandler("cancel", show_main_menu),
+            ],
+            ADMIN_BROADCAST_INPUT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_broadcast_send),
+                CallbackQueryHandler(admin_panel, pattern="^admin_panel$"),
+                CommandHandler("cancel", show_main_menu),
+            ],
+            ORDER_STATUS_LIST: [
+                CallbackQueryHandler(order_view_detail, pattern="^order_view_"),
+                CallbackQueryHandler(order_status_menu, pattern="^order_status$"),
                 CallbackQueryHandler(show_main_menu, pattern="^main$"),
             ],
             ADMIN_MULTIPLIER: [
@@ -1499,6 +2167,7 @@ def main():
     application.add_handler(admin_payment_conv)
     application.add_handler(conv_handler)
 
+    application.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
     application.add_handler(CallbackQueryHandler(admin_reject_payment, pattern="^admin_reject_"))
     application.add_handler(CallbackQueryHandler(my_referrals, pattern="^my_referrals$"))
 
