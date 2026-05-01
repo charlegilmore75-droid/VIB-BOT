@@ -9,8 +9,8 @@ from telegram.ext import (
 )
 
 # ======================== إعدادات البوت ========================
-BOT_TOKEN = "8697459386:AAGyan3a_UCf9oodPD96NEYAd3s1eyR7geo"
-ADMIN_ID = 8492949590
+BOT_TOKEN = "8773580013:AAFku28jd9oF0JpCpv9U_BvXtDY5yzSnvyQ"
+ADMIN_ID = 7632911735
 ADMIN_USERNAME = "@VIP10ADMIN"
 SMM_API_KEY = "e7c929c6ff91fa7b91f945f59d726348"
 SMM_API_URL = "https://boostprovider.com/api/v2"
