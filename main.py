@@ -17,7 +17,7 @@ from telegram.ext import (
 )
 
 # ======================== إعدادات البوت ========================
-BOT_TOKEN       = os.environ.get("BOT_TOKEN",       "8670958475:AAGpqV_nSpPRn8TMi3BUU1qYgd6mfsvfbKc")
+BOT_TOKEN       = os.environ.get("BOT_TOKEN",       "8773580013:AAFku28jd9oF0JpCpv9U_BvXtDY5yzSnvyQ")
 ADMIN_ID        = int(os.environ.get("ADMIN_ID",    "7632911735"))
 ADMIN_USERNAME  = os.environ.get("ADMIN_USERNAME",  "@VIP10ADMIN")
 SMM_API_KEY     = os.environ.get("SMM_API_KEY",     "e7c929c6ff91fa7b91f945f59d726348")
