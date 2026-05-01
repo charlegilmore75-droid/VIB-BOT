@@ -25,7 +25,7 @@ SMM_API_URL     = os.environ.get("SMM_API_URL",     "https://boostprovider.com/a
 SHAM_CASH_ACCOUNT    = os.environ.get("SHAM_CASH_ACCOUNT",    "faff24e005ce48a4528f18674ad95967")
 SYRIATEL_CASH_ACCOUNT = os.environ.get("SYRIATEL_CASH_ACCOUNT", "38090777")
 REFERRAL_COMMISSION  = float(os.environ.get("REFERRAL_COMMISSION", "0.07"))
-DATABASE_URL = "postgresql://postgres:Hasn2007@#%G@db.yxafhdudoycjeyukvtkf.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres:hasn1234DDGGGDSD@db.yxafhdudoycjeyukvtkf.supabase.co:5432/postgres"
 
 # ======================== الاشتراك الإجباري ========================
 REQUIRED_CHANNEL_ID       = -1003772429885
