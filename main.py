@@ -205,24 +205,27 @@ def init_db():
         ON CONFLICT (user_id) DO NOTHING
         """,
     ]
-    with _db_lock:
-        conn = _get_conn()
-        try:
-            with conn.cursor() as c:
-                for stmt in stmts:
-                    try:
-                        c.execute(stmt)
-                    except Exception as e:
-                        logger.warning(f"Init stmt warning: {e}")
-                        conn.rollback()
-            conn.commit()
-            logger.info("✅ All database tables initialized")
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"init_db error: {e}")
-            raise
-        finally:
-            _put_conn(conn)
+    # كل جملة في transaction منفصلة حتى لا يُفسد فشل واحدة بقية الجداول
+    conn = _db_pool.getconn()
+    try:
+        for stmt in stmts:
+            stmt = stmt.strip()
+            if not stmt:
+                continue
+            try:
+                with conn.cursor() as c:
+                    c.execute(stmt)
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                logger.warning(f"Init stmt warning (ignored): {e}")
+        logger.info("✅ All database tables initialized")
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"init_db fatal error: {e}")
+        raise
+    finally:
+        _db_pool.putconn(conn)
 
 # ======================== دوال مساعدة ========================
 def _row_to_user(row):
@@ -318,7 +321,8 @@ def add_referral(referrer_id, new_user_id):
     with _db_lock:
         conn = _get_conn()
         try:
-            with conn.cursor() as c:
+            # RealDictCursor لأننا نصل للعمود بالاسم row["referrals"]
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c:
                 c.execute("SELECT referrals FROM users WHERE user_id=%s", (rid,))
                 row = c.fetchone()
                 if row is None:
@@ -431,11 +435,25 @@ def fetch_provider_services(force=False):
                 rate = float(s.get("rate", 0))
             except (TypeError, ValueError):
                 rate = 0.0
+            try:
+                mn = int(s.get("min", 1))
+            except (TypeError, ValueError):
+                mn = 1
+            try:
+                mx = int(s.get("max", 1000000))
+            except (TypeError, ValueError):
+                mx = 1000000
             mapping[sid] = {
-                "rate": rate,
-                "min": s.get("min"),
-                "max": s.get("max"),
-                "name": s.get("name", "")
+                "rate":        rate,
+                "min":         mn,
+                "max":         mx,
+                "name":        s.get("name", ""),
+                "type":        s.get("type", ""),
+                "category":    s.get("category", ""),
+                "refill":      bool(s.get("refill", False)),
+                "cancel":      bool(s.get("cancel", False)),
+                "dripfeed":    bool(s.get("dripfeed", False)),
+                "description": s.get("description", ""),
             }
         _services_cache["data"] = mapping
         _services_cache["ts"] = now
@@ -622,7 +640,8 @@ def move_button_order(btn_id, direction):
     with _db_lock:
         conn = _get_conn()
         try:
-            with conn.cursor() as c:
+            # RealDictCursor لأننا نصل للأعمدة بالاسم
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c:
                 c.execute("SELECT id, sort_order FROM custom_buttons WHERE id=%s", (btn_id,))
                 btn = c.fetchone()
                 if btn is None:
@@ -697,13 +716,19 @@ def build_service(smm_id):
     if not info:
         return None
     return {
-        "id": str(smm_id),
-        "smm_id": str(smm_id),
-        "name": info.get("name", f"خدمة #{smm_id}"),
-        "min": info.get("min", 1),
-        "max": info.get("max", 1000000),
+        "id":            str(smm_id),
+        "smm_id":        str(smm_id),
+        "name":          info.get("name", f"خدمة #{smm_id}"),
+        "min":           info.get("min", 1),
+        "max":           info.get("max", 1000000),
         "price_per_1000": info.get("rate", 0.0),
-        "avg_time": "غير محدد",
+        "avg_time":      "غير محدد",
+        "type":          info.get("type", ""),
+        "category":      info.get("category", ""),
+        "refill":        info.get("refill", False),
+        "cancel":        info.get("cancel", False),
+        "dripfeed":      info.get("dripfeed", False),
+        "description":   info.get("description", ""),
     }
 
 def get_category_services(platform_key, category_key):
@@ -1216,6 +1241,112 @@ async def custom_button_selected(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return SERVICE_SELECT
 
+def _service_detail_text(svc, price):
+    """بناء نص تفاصيل الخدمة الاحترافي الكامل."""
+    name     = svc.get("name", "")
+    svc_type = svc.get("type", "")
+    category = svc.get("category", "")
+    refill   = svc.get("refill", False)
+    cancel   = svc.get("cancel", False)
+    dripfeed = svc.get("dripfeed", False)
+    desc     = (svc.get("description") or "").strip()
+    mn       = svc.get("min", 1)
+    mx       = svc.get("max", 1000000)
+    svc_id   = svc.get("smm_id") or svc.get("id", "")
+
+    # ── الاسم الكامل للخدمة
+    lines = [
+        "📋 تفاصيل الخدمة",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"🔹 {name}",
+        "━━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    # ── معلومات المزود (الفئة والنوع)
+    if category:
+        lines.append(f"🗂️ الفئة: {category}")
+    if svc_type:
+        _type_ar = {
+            "Default":          "عادي",
+            "Custom Comments":  "تعليقات مخصصة",
+            "Mentions":         "إشارات",
+            "Mentions with Hashtags": "إشارات بهاشتاق",
+            "Drip-feed":        "تغذية تدريجية",
+            "Package":          "حزمة",
+            "Subscriptions":    "اشتراكات",
+        }.get(svc_type, svc_type)
+        lines.append(f"⚙️ النوع: {_type_ar}")
+    if svc_id:
+        lines.append(f"🆔 رقم الخدمة: #{svc_id}")
+
+    lines.append("")
+
+    # ── السعر والكمية
+    lines.append("💰 السعر والكمية")
+    lines.append("─────────────────────")
+    lines.append(f"💵 السعر: {price:.4f}$ لكل 1,000")
+    lines.append(f"💡 مثال: 1,000 وحدة = {price:.4f}$")
+    lines.append(f"💡 مثال: 10,000 وحدة = {price * 10:.4f}$")
+    lines.append(f"📉 الحد الأدنى للطلب: {mn:,}")
+    lines.append(f"📈 الحد الأقصى للطلب: {mx:,}")
+
+    lines.append("")
+
+    # ── مميزات الخدمة
+    lines.append("✨ مميزات الخدمة")
+    lines.append("─────────────────────")
+    lines.append(f"{'✅' if refill   else '❌'} ضمان إعادة التعبئة (Refill)")
+    lines.append(f"{'✅' if cancel   else '❌'} إمكانية الإلغاء")
+    lines.append(f"{'✅' if dripfeed else '❌'} التوصيل التدريجي (Drip-feed)")
+
+    # ── وصف المزود إن وُجد
+    if desc:
+        lines.append("")
+        lines.append("📝 وصف الخدمة")
+        lines.append("─────────────────────")
+        # نقسم النص الطويل لأسطر مقروءة
+        for chunk in (desc[i:i+120] for i in range(0, min(len(desc), 600), 120)):
+            lines.append(chunk)
+
+    # ── تحذيرات ذكية حسب نوع الخدمة
+    name_lower = name.lower()
+    warnings = []
+
+    if any(k in name_lower for k in ["follower", "subscriber", "member", "متابع", "عضو"]):
+        warnings.append("👤 تأكد أن الحساب/القناة/المجموعة عامة وليست خاصة طوال فترة التنفيذ")
+    if any(k in name_lower for k in ["view", "مشاهد"]):
+        warnings.append("🔗 تأكد أن الرابط صحيح وأن المنشور/الفيديو منشور علنياً")
+    if any(k in name_lower for k in ["like", "reaction", "تفاعل", "إعجاب"]):
+        warnings.append("❤️ لا تحذف المنشور أثناء تنفيذ الطلب")
+    if any(k in name_lower for k in ["comment", "تعليق"]):
+        warnings.append("💬 تأكد أن التعليقات مفعّلة على المنشور")
+    if any(k in name_lower for k in ["share", "مشارك"]):
+        warnings.append("🔁 تأكد أن إعدادات المشاركة مفتوحة على المنشور")
+    if dripfeed:
+        warnings.append("⏳ الخدمة تدريجية — لا تضع طلبين على نفس الرابط في وقت واحد")
+
+    if warnings:
+        lines.append("")
+        lines.append("⚠️ تحذيرات مهمة")
+        lines.append("─────────────────────")
+        for w in warnings:
+            lines.append(f"• {w}")
+
+    # ── إخلاء المسؤولية
+    lines.append("")
+    lines.append("📌 إخلاء المسؤولية")
+    lines.append("─────────────────────")
+    lines.append("• النتائج تبدأ خلال الوقت المحدد من المزود وقد تتأخر أحياناً بسبب الضغط")
+    if refill:
+        lines.append("• الضمان يُطبَّق خلال مدة محددة من المزود — تواصل مع الدعم عند الحاجة")
+    else:
+        lines.append("• هذه الخدمة بدون ضمان — لا يمكن إعادة التعبئة في حال الانخفاض")
+    lines.append("• لا يُسمح بإلغاء الطلب بعد إرساله للمزود إلا إذا كانت الخدمة تدعم الإلغاء")
+    lines.append("• الرصيد يُخصم فور إرسال الطلب")
+
+    return "\n".join(lines)
+
+
 async def service_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query    = update.callback_query
     await query.answer()
@@ -1239,16 +1370,11 @@ async def service_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     price   = get_customer_price(svc)
     back_cb = context.user_data.get("svc_back_cb") or (f"category_{cat_key}" if cat_key else "main")
     keyboard = [
-        [InlineKeyboardButton("▶️ متابعة", callback_data="proceed_order")],
-        [InlineKeyboardButton("🔙 رجوع",   callback_data=back_cb)],
+        [InlineKeyboardButton("▶️ طلب الخدمة", callback_data="proceed_order")],
+        [InlineKeyboardButton("🔙 رجوع",        callback_data=back_cb)],
     ]
     await query.edit_message_text(
-        f"📋 تفاصيل الخدمة\n━━━━━━━━━━━━━━━━\n"
-        f"🔹 {svc['name']}\n\n"
-        f"💰 السعر: {price:.4f}$ / 1000\n"
-        f"📉 الحد الأدنى: {svc['min']:,}\n"
-        f"📈 الحد الأقصى: {svc['max']:,}\n"
-        f"⏱️ متوسط الوقت: {svc['avg_time']}",
+        _service_detail_text(svc, price),
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return SERVICE_SELECT
@@ -1423,7 +1549,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if not is_admin(query.from_user.id):
         await query.answer("❌ غير مصرح لك!", show_alert=True)
-        return
+        return MAIN_MENU
     await query.answer()
     multiplier   = get_multiplier()
     users_count  = get_users_count()
