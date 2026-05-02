@@ -18,14 +18,14 @@ from telegram.ext import (
 
 # ======================== إعدادات البوت ========================
 BOT_TOKEN       = os.environ.get("BOT_TOKEN",       "8773580013:AAFku28jd9oF0JpCpv9U_BvXtDY5yzSnvyQ")
-ADMIN_ID        = int(os.environ.get("ADMIN_ID",    "8492949590"))
+ADMIN_ID        = int(os.environ.get("ADMIN_ID",    "7632911735"))
 ADMIN_USERNAME  = os.environ.get("ADMIN_USERNAME",  "@VIP10ADMIN")
 SMM_API_KEY     = os.environ.get("SMM_API_KEY",     "e7c929c6ff91fa7b91f945f59d726348")
 SMM_API_URL     = os.environ.get("SMM_API_URL",     "https://boostprovider.com/api/v2")
 SHAM_CASH_ACCOUNT    = os.environ.get("SHAM_CASH_ACCOUNT",    "faff24e005ce48a4528f18674ad95967")
 SYRIATEL_CASH_ACCOUNT = os.environ.get("SYRIATEL_CASH_ACCOUNT", "38090777")
 REFERRAL_COMMISSION  = float(os.environ.get("REFERRAL_COMMISSION", "0.07"))
-DATABASE_URL = "postgresql://postgres.yxafhdudoycjeyukvtkf:hasn1234DDGGGDSD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres"
+DATABASE_URL    = os.environ.get("postgresql://postgres.yxafhdudoycjeyukvtkf:hasn1234DDGGGDSD@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres", "")
 
 # ======================== الاشتراك الإجباري ========================
 REQUIRED_CHANNEL_ID       = -1003772429885
@@ -63,23 +63,31 @@ def _init_pool():
     global _db_pool
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL environment variable is not set!")
+    # لا نحدد cursor_factory هنا — نحدده على مستوى كل cursor حسب الحاجة
     _db_pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=1, maxconn=10,
         dsn=DATABASE_URL,
-        cursor_factory=psycopg2.extras.RealDictCursor
     )
     logger.info("✅ PostgreSQL connection pool initialized")
 
 def _get_conn():
     """Get a connection from the pool, reconnecting if needed."""
     global _db_pool
+    conn = None
     try:
         conn = _db_pool.getconn()
-        # Test connection is alive
-        conn.cursor().execute("SELECT 1")
+        # اختبار أن الاتصال حي بدون تسريب cursor
+        with conn.cursor() as c:
+            c.execute("SELECT 1")
+        conn.rollback()  # نظّف أي transaction ضمنية
         return conn
     except Exception:
-        # Pool may have stale connections — reinitialize
+        # إعادة وضع الاتصال التالف في المجموعة ثم إعادة تهيئتها
+        if conn is not None:
+            try:
+                _db_pool.putconn(conn, close=True)
+            except Exception:
+                pass
         try:
             _init_pool()
         except Exception as e:
@@ -93,26 +101,26 @@ def _put_conn(conn):
     except Exception:
         pass
 
-def _db_run(sql, params=None, *, fetch=None, script=False):
+def _db_run(sql, params=None, *, fetch=None):
     """Execute SQL and optionally fetch results. Thread-safe."""
     with _db_lock:
         conn = _get_conn()
         try:
-            with conn.cursor() as c:
-                if script:
-                    for stmt in sql.split(";"):
-                        stmt = stmt.strip()
-                        if stmt:
-                            c.execute(stmt)
-                else:
-                    c.execute(sql, params)
+            # fetch="one"/"all" → RealDictCursor للحصول على قواميس
+            # fetch="val"/None  → cursor عادي يعيد tuples (يدعم row[0])
+            if fetch in ("one", "all"):
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            else:
+                cur = conn.cursor()
+            with cur:
+                cur.execute(sql, params)
                 if fetch == "one":
-                    result = c.fetchone()
+                    result = cur.fetchone()
                 elif fetch == "all":
-                    result = c.fetchall()
+                    result = cur.fetchall()
                 elif fetch == "val":
-                    row = c.fetchone()
-                    result = row[0] if row else None
+                    row = cur.fetchone()
+                    result = row[0] if row else None  # tuple → row[0] يعمل صح
                 else:
                     result = None
             conn.commit()
@@ -518,8 +526,10 @@ def create_custom_button(name, location="main"):
         conn = _get_conn()
         try:
             with conn.cursor() as c:
+                # cursor عادي (ليس RealDictCursor) → fetchone()[0] يعمل صح
                 c.execute("SELECT COALESCE(MAX(sort_order), 0) FROM custom_buttons")
-                max_order = c.fetchone()[0]
+                row = c.fetchone()
+                max_order = row[0] if row else 0
                 next_order = max_order + 1
                 c.execute(
                     """INSERT INTO custom_buttons
